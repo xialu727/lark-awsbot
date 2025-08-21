@@ -1,0 +1,13 @@
+{
+  "path": "/card_action",
+  "httpMethod": "POST",
+  "body": "{\"challenge\":\"test_challenge\",\"action\":{\"value\":{\"service\":\"EC2\",\"severity\":\"high\",\"ticket_id\":\"test-ticket-id\"}}}",
+  "headers": {
+    "Content-Type": "application/json"
+  },
+  "requestContext": {
+    "identity": {
+      "sourceIp": "127.0.0.1"
+    }
+  }
+}

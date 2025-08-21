@@ -1,0 +1,13 @@
+{
+  "path": "/webhook",
+  "httpMethod": "POST",
+  "body": "{\"challenge\":\"test_challenge\"}",
+  "headers": {
+    "Content-Type": "application/json"
+  },
+  "requestContext": {
+    "identity": {
+      "sourceIp": "127.0.0.1"
+    }
+  }
+}
