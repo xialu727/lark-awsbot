@@ -3,13 +3,16 @@
 """
 飞书API服务模块
 封装所有飞书相关的API调用
+使用lark-oapi SDK替代原生REST API调用
 """
 
 import json
 import time
 from typing import Dict, List, Optional, Union
 
-import requests
+import lark_oapi as lark
+from lark_oapi.api.im.v1 import *
+from lark_oapi.api.auth.v3 import *
 
 from utils import (
     get_config,
@@ -39,9 +42,16 @@ class FeishuService:
             ['app_id', 'app_secret'], 
             "飞书配置不完整"
         )
+        
+        # 初始化lark客户端
+        self._client = lark.Client.builder() \
+            .app_id(feishu_config['app_id']) \
+            .app_secret(feishu_config['app_secret']) \
+            .log_level(lark.LogLevel.INFO) \
+            .build()
     
     @handle_exception
-    @retry(max_attempts=3, delay=1.0, exceptions=(requests.RequestException, FeishuAPIError))
+    @retry(max_attempts=3, delay=1.0, exceptions=(Exception,))
     def get_access_token(self) -> str:
         """获取飞书访问令牌
         
@@ -57,44 +67,35 @@ class FeishuService:
         
         self.logger.info("获取飞书访问令牌")
         
-        feishu_config = self.config.get_feishu_config()
-        url = f"{feishu_config['api_base_url']}/auth/v3/tenant_access_token/internal"
-        
-        payload = {
-            "app_id": feishu_config['app_id'],
-            "app_secret": feishu_config['app_secret']
-        }
-        
-        headers = {
-            "Content-Type": "application/json; charset=utf-8"
-        }
-        
         try:
-            response = requests.post(url, json=payload, headers=headers, timeout=10)
-            response.raise_for_status()
+            # 使用lark-oapi SDK获取访问令牌
+            request = InternalTenantAccessTokenRequest.builder().build()
+            response = self._client.auth.v3.tenant_access_token.internal(request)
             
-            data = response.json()
+            if not response.success():
+                error_msg = f"获取访问令牌失败: {response.msg}"
+                self.logger.error(error_msg, response_data=response.raw)
+                raise FeishuAPIError(error_msg, response.code, response.raw)
             
-            if data.get('code') != 0:
-                error_msg = f"获取访问令牌失败: {data.get('msg', '未知错误')}"
-                self.logger.error(error_msg, response_data=data)
-                raise FeishuAPIError(error_msg, response.status_code, data)
-            
-            self._access_token = data['tenant_access_token']
+            self._access_token = response.data.tenant_access_token
             # 设置令牌过期时间（提前5分钟刷新）
-            expires_in = data.get('expire', 7200)
+            expires_in = response.data.expire or 7200
             self._token_expires_at = time.time() + expires_in - 300
             
             self.logger.info("成功获取飞书访问令牌")
             return self._access_token
             
-        except requests.RequestException as e:
+        except Exception as e:
             error_msg = f"请求飞书API失败: {str(e)}"
             self.logger.error(error_msg)
-            raise FeishuAPIError(error_msg) from e
+            # 处理lark-oapi SDK异常
+            if hasattr(e, 'code') and hasattr(e, 'msg'):
+                raise FeishuAPIError(f"获取访问令牌失败: {e.msg}", status_code=getattr(e, 'code', None)) from e
+            else:
+                raise FeishuAPIError(error_msg) from e
     
     @handle_exception
-    @retry(max_attempts=2, delay=1.0, exceptions=(requests.RequestException,))
+    @retry(max_attempts=2, delay=1.0, exceptions=(Exception,))
     def send_message(self, chat_id: str, msg_type: str, content: Dict) -> Dict:
         """发送飞书消息
         
@@ -117,51 +118,46 @@ class FeishuService:
         
         self.logger.info("发送飞书消息", chat_id=chat_id, msg_type=msg_type)
         
-        access_token = self.get_access_token()
-        feishu_config = self.config.get_feishu_config()
-        url = f"{feishu_config['api_base_url']}/im/v1/messages"
-        
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json; charset=utf-8"
-        }
-        
-        payload = {
-            "receive_id": chat_id,
-            "msg_type": msg_type,
-            "content": json.dumps(content, ensure_ascii=False)
-        }
-        
-        # 设置接收者类型为群聊
-        params = {"receive_id_type": "chat_id"}
-        
         try:
-            response = requests.post(
-                url, 
-                json=payload, 
-                headers=headers, 
-                params=params, 
-                timeout=10
-            )
-            response.raise_for_status()
+            # 使用lark-oapi SDK发送消息
+            request = CreateMessageRequest.builder() \
+                .receive_id_type("chat_id") \
+                .request_body(CreateMessageRequestBody.builder()
+                    .receive_id(chat_id)
+                    .msg_type(msg_type)
+                    .content(json.dumps(content, ensure_ascii=False))
+                    .build()) \
+                .build()
             
-            data = response.json()
+            response = self._client.im.v1.message.create(request)
             
-            if data.get('code') != 0:
-                error_msg = f"发送消息失败: {data.get('msg', '未知错误')}"
-                self.logger.error(error_msg, response_data=data)
-                raise FeishuAPIError(error_msg, response.status_code, data)
+            if not response.success():
+                error_msg = f"发送消息失败: {response.msg}"
+                self.logger.error(error_msg, response_data=response.raw)
+                raise FeishuAPIError(error_msg, response.code, response.raw)
             
-            self.logger.info("成功发送飞书消息", message_id=data.get('data', {}).get('message_id'))
-            return data
+            self.logger.info("成功发送飞书消息", message_id=response.data.message_id)
             
-        except requests.RequestException as e:
+            # 返回兼容原格式的响应
+            return {
+                "code": 0,
+                "msg": "success",
+                "data": {
+                    "message_id": response.data.message_id
+                }
+            }
+            
+        except Exception as e:
             error_msg = f"发送飞书消息请求失败: {str(e)}"
             self.logger.error(error_msg)
-            raise FeishuAPIError(error_msg) from e
+            # 处理lark-oapi SDK异常
+            if hasattr(e, 'code') and hasattr(e, 'msg'):
+                raise FeishuAPIError(f"发送消息失败: {e.msg}", status_code=getattr(e, 'code', None)) from e
+            else:
+                raise FeishuAPIError(error_msg) from e
     
     @handle_exception
-    @retry(max_attempts=2, delay=1.0, exceptions=(requests.RequestException,))
+    @retry(max_attempts=2, delay=1.0, exceptions=(Exception,))
     def create_chat(self, chat_name: str, description: str = '', 
                    owner_id: str = '', user_list: List[str] = None) -> Optional[str]:
         """创建飞书群聊
@@ -186,58 +182,53 @@ class FeishuService:
         
         self.logger.info("创建飞书群聊", chat_name=chat_name, owner_id=owner_id)
         
-        access_token = self.get_access_token()
-        feishu_config = self.config.get_feishu_config()
-        url = f"{feishu_config['api_base_url']}/im/v1/chats"
-        
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json; charset=utf-8"
-        }
-        
-        # 构建请求体
-        payload = {
-            "name": chat_name,
-            "description": description,
-            "chat_mode": "group",
-            "chat_type": "private",
-            "join_message_visibility": "all_members",
-            "leave_message_visibility": "all_members",
-            "membership_approval": "no_approval_required"
-        }
-        
-        # 设置群主
-        if owner_id:
-            payload["owner_id"] = owner_id
-        
-        # 添加初始成员
-        if user_list:
-            payload["user_id_list"] = user_list
-        
         try:
-            response = requests.post(url, json=payload, headers=headers, timeout=15)
-            response.raise_for_status()
+            # 使用lark-oapi SDK创建群聊
+            request_body = CreateChatRequestBody.builder() \
+                .name(chat_name) \
+                .description(description) \
+                .chat_mode("group") \
+                .chat_type("private") \
+                .join_message_visibility("all_members") \
+                .leave_message_visibility("all_members") \
+                .membership_approval("no_approval_required")
             
-            data = response.json()
+            # 设置群主
+            if owner_id:
+                request_body.owner_id(owner_id)
             
-            if data.get('code') != 0:
-                error_msg = f"创建群聊失败: {data.get('msg', '未知错误')}"
-                self.logger.error(error_msg, response_data=data)
-                raise FeishuAPIError(error_msg, response.status_code, data)
+            # 添加初始成员
+            if user_list:
+                request_body.user_id_list(user_list)
             
-            chat_id = data.get('data', {}).get('chat_id')
+            request = CreateChatRequest.builder() \
+                .request_body(request_body.build()) \
+                .build()
+            
+            response = self._client.im.v1.chat.create(request)
+            
+            if not response.success():
+                error_msg = f"创建群聊失败: {response.msg}"
+                self.logger.error(error_msg, response_data=response.raw)
+                raise FeishuAPIError(error_msg, response.code, response.raw)
+            
+            chat_id = response.data.chat_id
             if chat_id:
                 self.logger.info("成功创建飞书群聊", chat_id=chat_id, chat_name=chat_name)
                 return chat_id
             else:
                 error_msg = "创建群聊成功但未返回群聊ID"
-                self.logger.error(error_msg, response_data=data)
-                raise FeishuAPIError(error_msg, response.status_code, data)
+                self.logger.error(error_msg, response_data=response.raw)
+                raise FeishuAPIError(error_msg, response.code, response.raw)
                 
-        except requests.RequestException as e:
+        except Exception as e:
             error_msg = f"创建群聊请求失败: {str(e)}"
             self.logger.error(error_msg)
-            raise FeishuAPIError(error_msg) from e
+            # 处理lark-oapi SDK异常
+            if hasattr(e, 'code') and hasattr(e, 'msg'):
+                raise FeishuAPIError(f"创建群聊失败: {e.msg}", status_code=getattr(e, 'code', None)) from e
+            else:
+                raise FeishuAPIError(error_msg) from e
     
     def create_ticket_card(self, title: str) -> Dict:
         """创建工单卡片

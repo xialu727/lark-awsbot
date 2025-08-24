@@ -31,8 +31,7 @@
 │   ├── 使用说明.md            # 使用指南
 │   ├── 无服务部署指南.md      # 部署指南
 │   └── 群聊功能验证清单.md    # 验证清单
-├── tests/                 # 测试目录
-└── .env.example          # 环境变量模板
+└── tests/                 # 测试目录
 ```
 
 ## 🚀 快速部署
@@ -41,8 +40,6 @@
 
 1. 复制环境变量模板：
 ```bash
-cp .env.example .env
-# 或者使用config目录下的模板
 cp config/.env.example .env
 ```
 
