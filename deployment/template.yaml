@@ -5,12 +5,12 @@ Description: 飞书AWS工单机器人 - 无服务部署版本
 Parameters:
   FeishuAppId:
     Type: String
-    Default: cli_a1b2c3d4e5f6g7h8
+    Default: your_feishu_app_id
     Description: 飞书应用ID
   
   FeishuAppSecret:
     Type: String
-    Default: abcdefghijklmnopqrstuvwxyz123456
+    Default: your_feishu_app_secret
     NoEcho: true
     Description: 飞书应用密钥
   
