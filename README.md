@@ -6,22 +6,26 @@
 
 ```
 lark-aws-lambda/
-├── lambda_function.py    # Lambda入口文件
-├── utils.py             # 配置管理和工具函数
-├── ticket_handler.py    # 工单处理逻辑
-├── feishu_service.py    # 飞书API服务
-├── aws_service.py       # AWS服务封装
+├── lambda_function.py    # Lambda入口函数（路由分发）
+├── utils.py             # 配置管理、日志、异常处理等工具类
+├── ticket_handler.py    # 工单核心业务逻辑
+├── feishu_service.py    # 飞书API服务封装（lark-oapi SDK）
+├── aws_service.py       # AWS服务封装（DynamoDB、Support API）
 ├── requirements.txt     # Python依赖
 ├── deployment/          # 部署相关文件
-│   ├── template.yaml
-│   ├── deploy-serverless.sh
-│   └── events/
+│   ├── template.yaml    # CloudFormation模板
+│   ├── deploy-serverless.sh  # 部署脚本
+│   └── events/          # 测试事件
+│       ├── card_action_event.json
+│       └── webhook_event.json
 ├── config/             # 配置文件
-│   └── .env.example
+│   └── .env.example    # 环境变量示例
 ├── docs/               # 文档目录
-├── tests/              # 测试目录
-└── images/             # 图片资源
-    └── 20250821-151454.png # 项目架构图
+│   ├── README.md       # 详细文档
+│   └── 使用说明.md     # 使用指南
+├── images/             # 图片资源
+│   └── 20250821-151454.png # 项目架构图
+└── .gitignore          # Git忽略文件
 ```
 
 ## 🏗️ 项目架构
